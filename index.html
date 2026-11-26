@@ -569,7 +569,84 @@ document.addEventListener("submit",function(e){var f=e.target.closest("form[data
 $("#menuBtn").addEventListener("click",function(){var n=$("#nav"),o=n.classList.toggle("open");this.setAttribute("aria-expanded",o)});
 window.addEventListener("hashchange",route);
 try{var th=localStorage.getItem("ap-theme");if(th)document.documentElement.setAttribute("data-theme",th)}catch(e){}
-loadDB();route();
+loadDB();
+/* ---------- modo avaliação (cronômetro automático) ---------- */
+/* Preenchido depois de criar o formulário (o script do Google mostra estas duas linhas prontas). */
+var AVAL_FORM="";
+var AVAL_ENT={tA:"",tB:"",tC:"",tD:"",eA:"",eB:"",eC:"",eD:""};
+var AV_KEY="achados-avaliacao-v1";
+var TASKS=[
+ {k:"A",t:"Buscar e contatar",txt:"Você perdeu uma carteira preta na biblioteca. Veja se alguém já cadastrou e envie uma mensagem para quem achou. Se o site pedir cadastro, use o nome “Teste Participante” e o contato teste@exemplo.com."},
+ {k:"B",t:"Cadastrar item achado",txt:"Você encontrou um guarda-chuva azul na biblioteca, hoje. Cadastre o item para que o dono possa encontrá-lo. A foto é opcional."},
+ {k:"C",t:"Cadastrar item perdido",txt:"Você perdeu um celular com capa verde no pátio ontem. Cadastre o item para que alguém possa avisar você."},
+ {k:"D",t:"Marcar como resolvido",txt:"O seu item foi devolvido. Retire o anúncio da busca. (O site entra como Maria, que já tem anúncios cadastrados.)"}
+];
+var AV=null;
+function avLoad(){try{var s=lsGet(AV_KEY);AV=s?JSON.parse(s):null}catch(e){AV=null}}
+function avSave(){if(AV)lsSet(AV_KEY,JSON.stringify(AV))}
+function avFmt(s){var m=Math.floor(s/60),r=s%60;return (m<10?"0":"")+m+":"+(r<10?"0":"")+r}
+function avSecs(){return AV&&AV.t0?Math.max(0,Math.round((Date.now()-AV.t0)/1000)):0}
+(function(){
+  var qs=location.search||"";
+  if(/[?&]avaliacao/.test(qs)){AV={i:0,t0:0,err:0,res:[],on:true};try{var old=lsGet(AV_KEY);if(old){var o=JSON.parse(old);if(o&&o.on)AV=o}}catch(e){}avSave()}
+  else avLoad();
+  if(!AV||!AV.on)return;
+  var st=document.createElement("style");
+  st.textContent="#avbar{position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--surface);color:var(--ink);border-top:3px solid var(--acc);box-shadow:0 -4px 16px rgba(10,40,40,.18);padding:10px max(14px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(14px,env(safe-area-inset-left,0px))}"+
+  "#avbar .in{max-width:980px;margin:0 auto;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between}"+
+  "#avbar .tx{flex:1 1 260px;min-width:0;font-size:14px;line-height:1.4}#avbar .tx b{display:block;font-size:15px}"+
+  "#avbar .tm{font-variant-numeric:tabular-nums;font-weight:700;font-size:20px;color:var(--pri)}"+
+  "#avbar .bt{display:flex;gap:8px;align-items:center;flex-wrap:wrap}"+
+  "#avbar button,#avbar a.b{font:inherit;font-weight:700;min-height:44px;padding:0 16px;border-radius:10px;border:2px solid var(--pri);background:var(--surface);color:var(--pri);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}"+
+  "#avbar .p{background:var(--acc);border-color:var(--acc);color:var(--onacc)}"+
+  "#avbar table{border-collapse:collapse;font-size:13px;margin-top:4px}#avbar td,#avbar th{padding:2px 10px 2px 0;text-align:left}"+
+  "body.hasav{padding-bottom:var(--avh,150px)}body.hasav #toast{bottom:calc(var(--avh,150px) + 12px)}";
+  document.head.appendChild(st);
+  var bar=document.createElement("div");bar.id="avbar";bar.setAttribute("role","region");bar.setAttribute("aria-label","Avaliação do site");
+  document.body.appendChild(bar);document.body.classList.add("hasav");
+  var tick=null;
+  function pre(){var q=["usp=pp_url"];["A","B","C","D"].forEach(function(k,i){var r=AV.res[i]||{};
+    if(AVAL_ENT["t"+k])q.push("entry."+AVAL_ENT["t"+k]+"="+encodeURIComponent(r.ok?String(r.s):"desistiu"));
+    if(AVAL_ENT["e"+k])q.push("entry."+AVAL_ENT["e"+k]+"="+encodeURIComponent(String(r.err||0)))});
+    return AVAL_FORM+(AVAL_FORM.indexOf("?")<0?"?":"&")+q.join("&")}
+  function paint(){
+    clearInterval(tick);var i=AV.i,h="";
+    if(i>=4){
+      var rows=AV.res.map(function(r,n){return "<tr><th>Tarefa "+TASKS[n].k+"</th><td>"+(r.ok?avFmt(r.s):"não concluída")+"</td><td>"+(r.err||0)+(r.err===1?" erro":" erros")+"</td></tr>"}).join("");
+      h='<div class="in"><div class="tx"><b>Terminou! Falta só o formulário.</b>Os tempos já vão preenchidos nele. Não precisa anotar nada.<table>'+rows+'</table></div><div class="bt">'+
+        (AVAL_FORM?'<a class="b p" href="'+esc(pre())+'">Abrir o formulário</a>':'<span class="tm">Formulário ainda não configurado</span>')+'</div></div>';
+    }else{
+      var T=TASKS[i];
+      if(AV.t0){
+        h='<div class="in"><div class="tx"><b>Tarefa '+T.k+' de 4 · '+T.t+'</b>'+esc(T.txt)+'</div><div class="bt"><span class="tm" id="avt">'+avFmt(avSecs())+'</span><button type="button" data-av="skip">Não consegui</button></div></div>';
+      }else if(AV.done){
+        var r=AV.res[i-1];
+        h='<div class="in"><div class="tx"><b>'+(r.ok?"Tarefa "+TASKS[i-1].k+" concluída em "+avFmt(r.s):"Tarefa "+TASKS[i-1].k+" registrada como não concluída")+'</b>Pronto, o tempo foi guardado. Quando quiser, passe para a próxima.</div><div class="bt"><button type="button" class="p" data-av="start">Começar a tarefa '+T.k+'</button></div></div>';
+      }else{
+        h='<div class="in"><div class="tx"><b>'+(i===0?"Avaliação do site: 4 tarefas curtas":"Próxima: tarefa "+T.k)+'</b>'+(i===0?"Participação voluntária e anônima: você pode parar quando quiser. O teste avalia o site, não você. O tempo é medido sozinho, do botão “Começar” até você terminar. Faça sem pedir ajuda. Ao clicar em Começar, você concorda em participar.":esc(T.t))+'</div><div class="bt"><button type="button" class="p" data-av="start">Começar a tarefa '+T.k+'</button></div></div>';
+      }
+    }
+    bar.innerHTML=h;
+    document.documentElement.style.setProperty("--avh",(bar.offsetHeight+4)+"px");
+    var el=document.getElementById("avt");if(el)tick=setInterval(function(){var e=document.getElementById("avt");if(e)e.textContent=avFmt(avSecs())},1000);
+  }
+  function finish(ok){if(!AV.t0)return;AV.res[AV.i]={ok:ok,s:avSecs(),err:AV.err};AV.i++;AV.t0=0;AV.err=0;AV.done=true;avSave();paint()}
+  bar.addEventListener("click",function(e){var b=e.target.closest("[data-av]");if(!b)return;var a=b.getAttribute("data-av");
+    if(a==="start"){
+      if(AV.i===0){DB=seed();saveDB()}
+      if(AV.i===3){DB.session=1;saveDB()}
+      AV.t0=Date.now();AV.err=0;AV.done=false;avSave();go("inicio");route();paint()}
+    if(a==="skip")finish(false)});
+  /* ganchos: fim de cada tarefa e contagem de erros */
+  var oc=forms.contact,oi=forms.item,orv=doResolve,ofail=failForm;
+  forms.contact=function(f){var n=DB.msgs.length;oc(f);if(AV.t0&&AV.i===0&&DB.msgs.length>n)finish(true)};
+  forms.item=function(f){var n=DB.items.length,t=f.getAttribute("data-tipo");oi(f);if(AV.t0&&!f.getAttribute("data-id")&&DB.items.length>n){if(AV.i===1&&t==="achado")finish(true);else if(AV.i===2&&t==="perdido")finish(true)}};
+  doResolve=function(id){orv(id);if(AV.t0&&AV.i===3)finish(true)};
+  failForm=function(form,errs){if(AV.t0){AV.err++;avSave()}return ofail(form,errs)};
+  paint();
+})();
+
+route();
 })();
 
 </script>
